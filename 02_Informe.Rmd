@@ -1,0 +1,486 @@
+---
+title: "Informe de Seguimiento Semanal – Estudio VSR Colombia"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  word_document:
+    toc: false
+    number_sections: false
+---
+
+```{r setup, include=FALSE}
+# Configuración general del documento -----------------------------------------
+knitr::opts_chunk$set(
+  echo    = FALSE,
+  warning = FALSE,
+  message = FALSE
+)
+
+# Librerías -------------------------------------------------------------------
+library(tidyverse)
+library(lubridate)
+library(flextable)
+library(officer)
+
+# Carga de datos depurados ----------------------------------------------------
+load("datos_depurados_VSR.RData")
+
+# Fecha de corte
+fecha_corte           <- as.Date("2026-07-12")
+fecha_semana_anterior <- fecha_corte - 6
+
+# Paleta institucional
+color_header <- "#6EA1BA"
+color_total  <- "#F2F2F2"
+```
+
+---
+
+**Fecha de corte:** `r format(fecha_corte, "%d/%m/%Y")` | **Período última semana:** `r format(fecha_semana_anterior, "%d/%m/%Y")` al `r format(fecha_corte, "%d/%m/%Y")`
+
+---
+
+# Estado de la recolección por centro
+
+```{r tabla-centros}
+# Tabla 1 - Seguimiento por centro --------------------------------------------
+
+tabla_display <- tabla_centros_final %>%
+  mutate(
+    centro = case_when(
+      centro == "clinica_rosario" ~ "Clínica El Rosario",
+      centro == "colsubsidio"     ~ "Colsubsidio",
+      centro == "erasmo"          ~ "Hospital Universitario Erasmo Meoz",
+      centro == "HINF"            ~ "Hospital Infantil Napoleón Franco Pareja",
+      centro == "TOTAL"           ~ "TOTAL",
+      TRUE                        ~ centro
+    ),
+    muestra_estimada = paste0(n_muestra, " (100%)"),
+    pacientes_kobo   = paste0(n_pacientes_kobo, " (", pct_pacientes, "%)"),
+    eventos_kobo     = as.character(n_eventos_kobo),
+    cumplimiento     = paste0(pct_pacientes, "%")
+  ) %>%
+  select(
+    `Centro participante`                       = centro,
+    `Muestra estimada (n, %)`                   = muestra_estimada,
+    `Pacientes ingresados a Kobotoolbox (n, %)` = pacientes_kobo,
+    `Eventos ingresados a Kobotoolbox (n)`      = eventos_kobo,
+    `Cumplimiento muestra estimada (%)`         = cumplimiento
+  )
+
+n_total <- nrow(tabla_display)
+
+flextable(tabla_display) %>%
+  theme_box() %>%
+  bg(part = "header", bg = color_header) %>%
+  color(part = "header", color = "white") %>%
+  bold(part = "header") %>%
+  bg(i = n_total, bg = color_total) %>%
+  bold(i = n_total) %>%
+  width(j = 1, width = 2.5) %>%
+  width(j = 2:5, width = 1.5) %>%
+  align(part = "all", align = "center") %>%
+  align(j = 1, part = "body", align = "left") %>%
+  fontsize(part = "all", size = 10) %>%
+  font(part = "all", fontname = "Arial") %>%
+  set_caption(
+    caption = "Tabla 1. Estado de recolección por centro participante a la fecha de corte."
+  )
+```
+
+\newpage
+
+# Cumplimiento de metas de recolección por médico
+
+```{r tabla-medicos}
+# Tabla 2 - Cumplimiento por médico -------------------------------------------
+
+nombres_display <- tribble(
+  ~cod_medico, ~nombre_display,     ~centro_display,
+  "CI",        "Cielo",             "Clínica El Rosario",
+  "MC",        "Marlly",            "Clínica El Rosario",
+  "ET",        "Elloth Tamara",     "Hospital Infantil Napoleón Franco Pareja",
+  "MCGM",      "Maria Claudia",     "Hospital Infantil Napoleón Franco Pareja",
+  "KVCA",      "Karen Carvajal",    "Hospital Infantil Napoleón Franco Pareja",
+  "SLMC",      "Sebastián Moncada", "Hospital Universitario Erasmo Meoz",
+  "NB",        "Neyker Bautista",   "Hospital Universitario Erasmo Meoz",
+  "DBP",       "Daniela Ballen",    "Colsubsidio",
+  "LPV",       "Liliana Prieto",    "Colsubsidio",
+  "MDLAJC",    "María Jimenez",     "Colsubsidio",
+  "ACOV",     "Ana Cristina Osorio", "Clínica El Rosario",
+  "EMG",      "Esteban Montoya",     "Colsubsidio",
+  "MVSF",     "María Verónica Suárez", "Colsubsidio"
+)
+
+tabla_medicos_display <- seguimiento_medico_full %>%
+  left_join(nombres_display, by = "cod_medico") %>%
+  mutate(
+    pct_semana    = paste0(pct_cumplimiento_semana,    "%"),
+    pct_acumulado = paste0(pct_cumplimiento_acumulado, "%")
+  ) %>%
+  select(
+    `Médico`                     = nombre_display,
+    `Centro`                     = centro_display,
+    `Meta semanal`               = meta_semanal,
+    `Última semana (n)`          = ultima_semana,
+    `Cumplimiento semana (%)`    = pct_semana,
+    `Total acumulado (n)`        = total_acumulado,
+    `Cumplimiento acumulado (%)` = pct_acumulado
+  )
+
+total_row <- tibble(
+  `Médico`                     = "TOTAL",
+  `Centro`                     = "",
+  `Meta semanal`               = sum(seguimiento_medico_full$meta_semanal,    na.rm = TRUE),
+  `Última semana (n)`          = sum(seguimiento_medico_full$ultima_semana,   na.rm = TRUE),
+  `Cumplimiento semana (%)`    = paste0(round(sum(seguimiento_medico_full$ultima_semana,  na.rm = TRUE) /
+                                              sum(seguimiento_medico_full$meta_semanal,   na.rm = TRUE) * 100, 1), "%"),
+  `Total acumulado (n)`        = sum(seguimiento_medico_full$total_acumulado, na.rm = TRUE),
+  `Cumplimiento acumulado (%)` = paste0(round(sum(seguimiento_medico_full$total_acumulado, na.rm = TRUE) /
+                                              sum(seguimiento_medico_full$meta_semanal,    na.rm = TRUE) * 100, 1), "%")
+)
+
+tabla_medicos_display <- bind_rows(tabla_medicos_display, total_row)
+n_med <- nrow(tabla_medicos_display)
+
+flextable(tabla_medicos_display) %>%
+  theme_box() %>%
+  bg(part = "header", bg = color_header) %>%
+  color(part = "header", color = "white") %>%
+  bold(part = "header") %>%
+  bg(i = n_med, bg = color_total) %>%
+  bold(i = n_med) %>%
+  color(
+    i = ~ as.numeric(str_remove(`Cumplimiento semana (%)`, "%")) < 80 & `Médico` != "TOTAL",
+    j = "Cumplimiento semana (%)",
+    color = "#C00000"
+  ) %>%
+  bold(
+    i = ~ as.numeric(str_remove(`Cumplimiento semana (%)`, "%")) < 80 & `Médico` != "TOTAL",
+    j = "Cumplimiento semana (%)"
+  ) %>%
+  width(j = 1, width = 1.8) %>%
+  width(j = 2, width = 2.2) %>%
+  width(j = 3:7, width = 1.1) %>%
+  align(part = "all", align = "center") %>%
+  align(j = 1:2, part = "body", align = "left") %>%
+  fontsize(part = "all", size = 10) %>%
+  font(part = "all", fontname = "Arial") %>%
+  set_caption(
+    caption = "Tabla 2. Cumplimiento de metas de recolección por médico. En rojo: cumplimiento semanal inferior al 80%."
+  )
+```
+
+```{r figura-semanal, fig.width=11, fig.height=7, dpi=150}
+# Figura - Inscripciones semanales por médico ---------------------------------
+
+library(ggplot2)
+library(scales)
+
+nombres_fig <- tribble(
+  ~cod_medico, ~nombre_medico,      ~centro_display,                              ~meta_semanal,
+  "CI",        "Cielo",             "Clínica El Rosario",                          13,
+  "MC",        "Marlly",            "Clínica El Rosario",                          10,
+  "ET",        "Elloth Tamara",     "Hospital Infantil\nNapoleón Franco Pareja",   50,
+  "MCGM",      "Maria Claudia",     "Hospital Infantil\nNapoleón Franco Pareja",   25,
+  "KVCA",      "Karen Carvajal",    "Hospital Infantil\nNapoleón Franco Pareja",   30,
+  "SLMC",      "Sebastián Moncada", "Hospital Universitario\nErasmo Meoz",         31,
+  "NB",        "Neyker Bautista",   "Hospital Universitario\nErasmo Meoz",         31,
+  "DBP",       "Daniela Ballen",    "Colsubsidio",                                 31,
+  "LPV",       "Liliana Prieto",    "Colsubsidio",                                 13,
+  "MDLAJC",    "María Jimenez",     "Colsubsidio",                                 25,
+  "ACOV",      "Ana Cristina Osorio", "clinica_rosario",                          10,    
+  "EMG",      "Esteban Montoya",       "colsubsidio",                              25,    
+  "MVSF",     "María Verónica Suárez", "colsubsidio",                              25    
+)
+
+serie_semanal <- main_limpio %>%
+  filter(elegible == TRUE, fecha_registro <= fecha_corte) %>%
+  mutate(semana = floor_date(fecha_registro, unit = "week", week_start = 1)) %>%
+  group_by(cod_medico, semana) %>%
+  summarise(n_semana = n_distinct(id), .groups = "drop")  %>%
+  left_join(nombres_fig, by = "cod_medico") %>%
+  filter(!is.na(nombre_medico)) %>%
+  mutate(
+    panel_label  = paste0(nombre_medico, "\n", centro_display),
+    semana_label = factor(format(semana, "%d %b"),
+                          levels = format(sort(unique(semana)), "%d %b"))
+  )
+
+# Semana del corte (misma lógica que la tabla)
+semana_corte_label <- format(floor_date(fecha_corte, unit = "week", week_start = 1), "%d %b")
+
+ggplot(serie_semanal, aes(x = semana_label, y = n_semana)) +
+  geom_col(aes(fill = semana_label == semana_corte_label), width = 0.6, show.legend = FALSE) +
+  scale_fill_manual(values = c("TRUE" = "#185FA5", "FALSE" = "#92C8E5")) +
+  geom_text(aes(label = n_semana), vjust = -0.5, size = 3, color = "#1a1a1a") +
+  geom_hline(aes(yintercept = meta_semanal),
+             linetype = "dashed", color = "#C00000", linewidth = 0.7) +
+  geom_text(aes(x = Inf, y = meta_semanal,
+                label = paste0("Meta: ", meta_semanal)),
+            hjust = 1.05, vjust = -0.5, size = 3, color = "#C00000") +
+  facet_wrap(~ panel_label, scales = "free_x", ncol = 3) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(
+    title    = "Inscripciones semanales por médico",
+    subtitle = paste0("Corte: ", format(fecha_corte, "%d/%m/%Y"),
+                      "  |  Azul oscuro = semana actual  |  Línea roja = meta semanal"),
+    x = NULL,
+    y = "Pacientes ingresados (n)"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title         = element_text(size = 12, face = "bold", color = "#1a1a1a"),
+    plot.subtitle      = element_text(size = 9, color = "#555555"),
+    strip.text         = element_text(size = 8, face = "bold"),
+    strip.background   = element_rect(fill = "#D9E8F2", color = NA),
+    panel.grid.minor   = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(color = "#eeeeee"),
+    axis.text.x        = element_text(size = 8, angle = 0, hjust = 0.5),
+    plot.margin        = margin(10, 15, 10, 10)
+  )
+```
+
+
+
+```{r tabla-errores, eval=FALSE, include=FALSE}
+# Tabla 3 - Resumen de errores ------------------------------------------------
+
+flextable(
+  resumen_errores %>%
+    rename(
+      `Tipo de error`           = tipo_error,
+      `Registros afectados (n)` = n_registros_afectados,
+      `Estado`                  = estado
+    )
+) %>%
+  theme_box() %>%
+  bg(part = "header", bg = color_header) %>%
+  color(part = "header", color = "white") %>%
+  bold(part = "header") %>%
+  color(
+    i = ~ `Estado` == "Requiere revisión",
+    j = "Estado",
+    color = "#C00000"
+  ) %>%
+  color(
+    i = ~ `Estado` == "Sin errores",
+    j = "Estado",
+    color = "#375623"
+  ) %>%
+  bold(j = "Estado") %>%
+  width(j = 1, width = 3.5) %>%
+  width(j = 2, width = 1.5) %>%
+  width(j = 3, width = 2.0) %>%
+  align(part = "all", align = "center") %>%
+  align(j = 1, part = "body", align = "left") %>%
+  fontsize(part = "all", size = 10) %>%
+  font(part = "all", fontname = "Arial") %>%
+  set_caption(
+    caption = "Tabla 3. Resumen de errores e inconsistencias detectadas en la base de datos."
+  )
+```
+
+```{r tabla-edad-errores}
+#Fechas de nacimiento posteriores al inicio del evento
+
+display_fecha_nac <- errores_fecha_nacimiento %>%
+  select(
+    `ID participante`     = submission_id,
+    `Evento (index)`      = index,
+    `Médico`              = nombre_medico,
+    `Centro`              = nombre_institucion,
+    `Fecha nacimiento`    = fecha_nacimiento,
+    `Fecha inicio evento` = fecha_inicio_evento
+  )
+
+flextable(display_fecha_nac) %>%
+  theme_box() %>%
+  bg(part = "header", bg = color_header) %>%
+  color(part = "header", color = "white") %>%
+  bold(part = "header") %>%
+  width(j = 1, width = 1.3) %>%
+  width(j = 2, width = 1.0) %>%
+  width(j = 3, width = 1.8) %>%
+  width(j = 4, width = 2.2) %>%
+  width(j = 5:6, width = 1.3) %>%
+  align(part = "all", align = "center") %>%
+  align(j = 3:4, part = "body", align = "left") %>%
+  fontsize(part = "all", size = 10) %>%
+  font(part = "all", fontname = "Arial") %>%
+  set_caption(
+    caption = "Tabla 4. Registros con fecha de nacimiento posterior a la fecha de inicio del evento."
+  )
+```
+
+```{r}
+# Tabla 4b - Casos con edad fuera del rango de elegibilidad (0-59 meses) ------
+
+display_edad <- errores_edad %>%
+  select(
+    `ID participante`     = submission_id,
+    `Evento (index)`      = index,
+    `Médico`              = nombre_medico,
+    `Centro`              = nombre_institucion,
+    `Fecha nacimiento`    = fecha_nacimiento,
+    `Fecha inicio evento` = fecha_inicio_evento,
+    `Edad (meses)`        = edad_meses_evento
+  )
+
+flextable(display_edad) %>%
+  theme_box() %>%
+  bg(part = "header", bg = color_header) %>%
+  color(part = "header", color = "white") %>%
+  bold(part = "header") %>%
+  width(j = 1, width = 1.3) %>%
+  width(j = 2, width = 1.0) %>%
+  width(j = 3, width = 1.8) %>%
+  width(j = 4, width = 2.2) %>%
+  width(j = 5:6, width = 1.3) %>%
+  width(j = 7, width = 1.1) %>%
+  align(part = "all", align = "center") %>%
+  align(j = 3:4, part = "body", align = "left") %>%
+  fontsize(part = "all", size = 10) %>%
+  font(part = "all", fontname = "Arial") %>%
+  set_caption(
+    caption = "Tabla 4b. Registros con edad fuera del rango de elegibilidad (0-59 meses) al inicio del evento."
+  )
+```
+
+```{r tabla-sin-estancia}
+# Tabla 4c - Eventos elegibles sin ningún nivel de atención registrado -------
+
+display_sin_estancia <- errores_sin_estancia %>%
+  select(
+    `ID participante`     = submission_id,
+    `Evento (index)`      = index,
+    `Médico`              = nombre_medico,
+    `Centro`              = nombre_institucion,
+    `Fecha inicio evento` = fecha_inicio_evento,
+    `Fecha fin evento`    = fecha_fin_evento
+  )
+
+flextable(display_sin_estancia) %>%
+  theme_box() %>%
+  bg(part = "header", bg = color_header) %>%
+  color(part = "header", color = "white") %>%
+  bold(part = "header") %>%
+  width(j = 1, width = 1.3) %>%
+  width(j = 2, width = 1.0) %>%
+  width(j = 3, width = 1.8) %>%
+  width(j = 4, width = 2.2) %>%
+  width(j = 5:6, width = 1.3) %>%
+  align(part = "all", align = "center") %>%
+  align(j = 3:4, part = "body", align = "left") %>%
+  fontsize(part = "all", size = 10) %>%
+  font(part = "all", fontname = "Arial") %>%
+  set_caption(
+    caption = "Tabla 4c. Eventos elegibles sin ningún nivel de atención registrado (urgencias, hospitalización general, cuidados intermedios o UCI)."
+  )
+```
+
+```{r tabla-pacientes-sin-estancia}
+# Tabla 4d - Pacientes elegibles totalmente sin atención registrada ---------
+# El médico se guía por submission_id, no por cod_participante,
+# por eso esta tabla no incluye esa columna.
+
+display_pacientes_sin_estancia <- pacientes_sin_estancia %>%
+  select(
+    `ID participante`      = submission_id,
+    `Médico`                = nombre_medico,
+    `Centro`                 = nombre_institucion,
+    `Eventos totales`        = n_eventos_totales,
+    `Eventos sin estancia`   = n_eventos_sin_estancia
+  )
+
+flextable(display_pacientes_sin_estancia) %>%
+  theme_box() %>%
+  bg(part = "header", bg = color_header) %>%
+  color(part = "header", color = "white") %>%
+  bold(part = "header") %>%
+  width(j = 1, width = 1.5) %>%
+  width(j = 2, width = 1.8) %>%
+  width(j = 3, width = 2.2) %>%
+  width(j = 4:5, width = 1.3) %>%
+  align(part = "all", align = "center") %>%
+  align(j = 2:3, part = "body", align = "left") %>%
+  fontsize(part = "all", size = 10) %>%
+  font(part = "all", fontname = "Arial") %>%
+  set_caption(
+    caption = "Tabla 4d. Pacientes elegibles cuyos eventos quedan totalmente sin ningún nivel de atención registrado."
+  )
+```
+
+\newpage
+
+# Episodios por máximo nivel de atención, por médico y centro
+
+```{r tabla-nivel-atencion}
+# Tabla 5 - Máximo nivel de atención por episodio -----------------------------
+
+niveles <- c("Urgencias", "Hospitalización general", "Cuidados intermedios", "UCI")
+
+# Construir encabezado: una columna n y una pct por nivel
+col_n   <- paste0(niveles, "_n")
+col_pct <- paste0(niveles, "_pct")
+
+# Función auxiliar: n (pct%) en una sola celda
+combinar_np <- function(df, nivel) {
+  n_col   <- paste0(nivel, "_n")
+  pct_col <- paste0(nivel, "_pct")
+  if (n_col %in% names(df)) {
+    paste0(df[[n_col]], " (", df[[pct_col]], "%)")
+  } else {
+    rep("0 (0%)", nrow(df))
+  }
+}
+
+display_nivel <- tabla_nivel_medico_final %>%
+  mutate(
+    Urgencias              = combinar_np(tabla_nivel_medico_final, "Urgencias"),
+    `Hosp. general`        = combinar_np(tabla_nivel_medico_final, "Hospitalización general"),
+    `C. intermedios`       = combinar_np(tabla_nivel_medico_final, "Cuidados intermedios"),
+    UCI                    = combinar_np(tabla_nivel_medico_final, "UCI")
+  ) %>%
+  select(
+    `Centro`               = nombre_institucion,
+    `Médico`               = nombre_medico,
+    `Total episodios`      = total_medico,
+    Urgencias,
+    `Hosp. general`,
+    `C. intermedios`,
+    UCI
+  )
+
+n_niv <- nrow(display_nivel)
+
+flextable(display_nivel) %>%
+  theme_box() %>%
+  add_header_row(
+    values = c("", "", "", "Máximo nivel de atención alcanzado", "", "", ""),
+    colwidths = c(1, 1, 1, 1, 1, 1, 1)
+  ) %>%
+  merge_h(part = "header", i = 1) %>%     # fusiona la fila del supertítulo
+  bg(part = "header", bg = color_header) %>%
+  color(part = "header", color = "white") %>%
+  bold(part = "header") %>%
+  bg(i = n_niv, bg = color_total) %>%
+  bold(i = n_niv) %>%
+  width(j = 1, width = 2.3) %>%
+  width(j = 2, width = 1.8) %>%
+  width(j = 3, width = 1.0) %>%
+  width(j = 4:7, width = 1.3) %>%
+  align(part = "all", align = "center") %>%
+  align(j = 1:2, part = "body", align = "left") %>%
+  fontsize(part = "all", size = 10) %>%
+  font(part = "all", fontname = "Arial") %>%
+  set_caption(
+    caption = paste0(
+      "Tabla 5. Episodios por máximo nivel de atención alcanzado, por médico y centro. ",
+      "Jerarquía: UCI > Cuidados intermedios > Hospitalización general > Urgencias."
+    )
+  )
+```
+---
+
+*Informe generado automáticamente el `r format(Sys.time(), "%d/%m/%Y a las %H:%M")`.*

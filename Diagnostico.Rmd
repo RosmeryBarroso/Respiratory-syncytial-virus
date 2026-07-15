@@ -1,0 +1,415 @@
+---
+title: "Diagnóstico comparativo de bases de datos hospitalarias (0–59 meses)"
+author: "ALZAK"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document: default
+affiliation: Economista, ALZAK Foundation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = FALSE,  # oculta el código
+  message = FALSE,  # oculta mensajes como el de tidyverse
+  warning = FALSE   # oculta advertencias
+)
+```
+
+## R Markdown
+
+```{r, include=FALSE}
+rm(list = ls()); gc()
+packages <- c(
+  "readxl", "writexl", "tidyverse", "googledrive",
+  "lubridate", "stringr", "purrr"
+)
+to_install <- packages[!packages %in% installed.packages()[, "Package"]]
+if(length(to_install)) install.packages(to_install)
+lapply(packages, library, character.only = TRUE)
+```
+
+```{r carga-y-calculos, include=FALSE}
+# ── Librerías ──────────────────────────────────────────
+packages <- c("readxl", "writexl", "tidyverse", "googledrive",
+              "lubridate", "stringr", "purrr", "knitr", "kableExtra")
+to_install <- packages[!packages %in% installed.packages()[, "Package"]]
+if(length(to_install)) install.packages(to_install)
+lapply(packages, library, character.only = TRUE)
+
+# ── Carga de datos ─────────────────────────────────────
+path1 <- "datos/Copia de DX PACIENTES 0 A 59 MESES.xlsx"
+df_hnfp1 <- map_dfr(excel_sheets(path1), function(x) {
+  read_excel(path1, sheet = x) %>% mutate(COMPLEJIDAD = x, .before = INGRESO)
+}) %>% mutate(EDAD_MESES = abs(EDAD_MESES),
+              DX = str_trim(toupper(DX)),
+              DOCUMENTO = as.character(DOCUMENTO),
+              TIPO_DOCUMENTO = str_trim(toupper(TIPO_DOCUMENTO)),
+              FECHA_INGRESO = ymd_hms(FECHA_INGRESO),
+              FECHA_EGRESO  = ymd_hms(FECHA_EGRESO))
+
+path2 <- "datos/Base de datos de pacientes entre 0-59 meses de edad.xlsx"
+df_hnfp <- map_dfr(excel_sheets(path2), function(x) {
+  read_excel(path2, sheet = x) %>% mutate(COMPLEJIDAD = x, .before = INGRESO)
+}) %>% mutate(EdadEnMeses = abs(EdadEnMeses),
+              DX = str_trim(toupper(DX)),
+              DOCUMENTO = as.character(DOCUMENTO),
+              TIPO_DOCUMENTO = str_trim(toupper(TIPO_DOCUMENTO)),
+              FECHA_INGRESO = ymd_hms(FECHA_INGRESO),
+              FECHA_SALIDA  = ymd_hms(FECHA_SALIDA))
+
+# ── Tabla 1: Resumen general ───────────────────────────
+tabla_general <- tibble(
+  Elemento = c("Total registros", "Fecha mínima ingreso", "Fecha máxima ingreso",
+               "NAs fecha egreso"),
+  `Base old` = c(
+    formatC(nrow(df_hnfp), format = "d", big.mark = ","),
+    as.character(min(df_hnfp$FECHA_INGRESO, na.rm = TRUE)),
+    as.character(max(df_hnfp$FECHA_INGRESO, na.rm = TRUE)),
+    as.character(sum(is.na(df_hnfp$FECHA_SALIDA)))
+  ),
+  `Base new` = c(
+    formatC(nrow(df_hnfp1), format = "d", big.mark = ","),
+    as.character(min(df_hnfp1$FECHA_INGRESO, na.rm = TRUE)),
+    as.character(max(df_hnfp1$FECHA_INGRESO, na.rm = TRUE)),
+    as.character(sum(is.na(df_hnfp1$FECHA_EGRESO)))
+  )
+)
+
+# ── Tabla 10: Duplicados ──────────────────────────────
+tabla_duplicados <- bind_rows(
+  # Duplicados en old
+  df_hnfp %>%
+    count(TIPO_DOCUMENTO, DOCUMENTO, FECHA_INGRESO) %>%
+    summarise(
+      Base                    = "old",
+      Total_registros         = nrow(df_hnfp),
+      Combinaciones_unicas    = n(),
+      Registros_duplicados    = sum(n > 1),
+      Eventos_con_duplicado   = sum(n[n > 1]),
+      Max_duplicados_un_evento = max(n)
+    ),
+  # Duplicados en new
+  df_hnfp1 %>%
+    count(TIPO_DOCUMENTO, DOCUMENTO, FECHA_INGRESO) %>%
+    summarise(
+      Base                    = "new",
+      Total_registros         = nrow(df_hnfp1),
+      Combinaciones_unicas    = n(),
+      Registros_duplicados    = sum(n > 1),
+      Eventos_con_duplicado   = sum(n[n > 1]),
+      Max_duplicados_un_evento = max(n)
+    )
+)
+
+# Detalle de los duplicados más frecuentes en old
+detalle_dup_old <- df_hnfp %>%
+  count(TIPO_DOCUMENTO, DOCUMENTO, FECHA_INGRESO, name = "n_veces") %>%
+  filter(n_veces > 1) %>%
+  arrange(desc(n_veces))
+
+# Detalle de los duplicados más frecuentes en new
+detalle_dup_new <- df_hnfp1 %>%
+  count(TIPO_DOCUMENTO, DOCUMENTO, FECHA_INGRESO, name = "n_veces") %>%
+  filter(n_veces > 1) %>%
+  arrange(desc(n_veces))
+
+# ── Tabla 2: Complejidad ───────────────────────────────
+tabla_complejidad <- full_join(
+  df_hnfp  %>% count(COMPLEJIDAD, name = "n_old"),
+  df_hnfp1 %>% count(COMPLEJIDAD, name = "n_new"),
+  by = "COMPLEJIDAD"
+) %>% mutate(
+  n_old = replace_na(n_old, 0),
+  n_new = replace_na(n_new, 0),
+  Diferencia = n_new - n_old
+)
+
+# ── Tabla 3: Edad ──────────────────────────────────────
+tabla_edad <- tibble(
+  Indicador = c("Mínimo", "Mediana", "Media", "Máximo", "NAs", "Registros > 59 meses"),
+  `Base old` = c(
+    min(df_hnfp$EdadEnMeses, na.rm = TRUE),
+    median(df_hnfp$EdadEnMeses, na.rm = TRUE),
+    round(mean(df_hnfp$EdadEnMeses, na.rm = TRUE), 1),
+    max(df_hnfp$EdadEnMeses, na.rm = TRUE),
+    sum(is.na(df_hnfp$EdadEnMeses)),
+    sum(df_hnfp$EdadEnMeses > 59, na.rm = TRUE)
+  ),
+  `Base new` = c(
+    min(df_hnfp1$EDAD_MESES, na.rm = TRUE),
+    median(df_hnfp1$EDAD_MESES, na.rm = TRUE),
+    round(mean(df_hnfp1$EDAD_MESES, na.rm = TRUE), 1),
+    max(df_hnfp1$EDAD_MESES, na.rm = TRUE),
+    sum(is.na(df_hnfp1$EDAD_MESES)),
+    sum(df_hnfp1$EDAD_MESES > 59, na.rm = TRUE)
+  )
+)
+
+# ── Tabla 4: Distribución edad mes a mes ──────────────
+tabla_dist_edad <- tibble(EdadEnMeses = 0:59) %>%
+  left_join(df_hnfp  %>% count(EdadEnMeses, name = "n_old"), by = "EdadEnMeses") %>%
+  left_join(df_hnfp1 %>% count(EDAD_MESES, name = "n_new") %>%
+              rename(EdadEnMeses = EDAD_MESES), by = "EdadEnMeses") %>%
+  mutate(n_old = replace_na(n_old, 0),
+         n_new = replace_na(n_new, 0),
+         diff  = n_new - n_old)
+
+# ── Tabla 5: CIE-10 resumen ───────────────────────────
+cie_estudio <- c(
+  "J100","J101","J108","J110","J111","J118",
+  "J120","J121","J122","J123","J128","J129",
+  "J13X","J14X",
+  "J150","J151","J152","J153","J154","J155","J156","J157","J158","J159",
+  "J160","J168","J170","J171","J172","J173","J178",
+  "J180","J181","J182","J188","J189","J09X",
+  "J200","J201","J202","J203","J204","J205","J206","J207","J208","J209",
+  "J210","J211","J218","J219","J22X"
+)
+
+tabla_cie <- tibble(DX = cie_estudio) %>%
+  left_join(df_hnfp  %>% filter(DX %in% cie_estudio) %>% count(DX, name = "n_old"), by = "DX") %>%
+  left_join(df_hnfp1 %>% filter(DX %in% cie_estudio) %>% count(DX, name = "n_new"), by = "DX") %>%
+  mutate(
+    n_old = replace_na(n_old, 0),
+    n_new = replace_na(n_new, 0),
+    en_old = n_old > 0,
+    en_new = n_new > 0,
+    Estado = case_when(
+      !en_old & !en_new ~ "Ausente en ambas",
+      en_old  & !en_new ~ "Solo en old",
+      !en_old & en_new  ~ "Solo en new",
+      TRUE               ~ "Presente en ambas"
+    ),
+    Diferencia = n_new - n_old
+  ) %>%
+  select(DX, n_old, n_new, Diferencia, Estado) %>%
+  arrange(Estado, DX)
+
+tabla_cie_resumen  <- tabla_cie %>% count(Estado, name = "Códigos")
+tabla_cie_problemas <- tabla_cie %>% filter(Estado != "Presente en ambas")
+
+# ── Tabla 6: Fechas egreso ────────────────────────────
+tabla_fechas <- tibble(
+  Indicador = c("NAs en fecha egreso", "Fecha mínima", "Fecha máxima",
+                "Egresos antes del ingreso"),
+  `Base old` = c(
+    sum(is.na(df_hnfp$FECHA_SALIDA)),
+    as.character(min(df_hnfp$FECHA_SALIDA, na.rm = TRUE)),
+    as.character(max(df_hnfp$FECHA_SALIDA, na.rm = TRUE)),
+    df_hnfp %>% filter(!is.na(FECHA_SALIDA), FECHA_SALIDA < FECHA_INGRESO) %>% nrow()
+  ),
+  `Base new` = c(
+    sum(is.na(df_hnfp1$FECHA_EGRESO)),
+    as.character(min(df_hnfp1$FECHA_EGRESO, na.rm = TRUE)),
+    as.character(max(df_hnfp1$FECHA_EGRESO, na.rm = TRUE)),
+    df_hnfp1 %>% filter(!is.na(FECHA_EGRESO), FECHA_EGRESO < FECHA_INGRESO) %>% nrow()
+  )
+)
+
+# ── Tabla 7: Estancias ────────────────────────────────
+calc_estancia <- function(df, fecha_sal, fecha_ing) {
+  df %>%
+    filter(!is.na({{fecha_sal}}), !is.na({{fecha_ing}})) %>%
+    mutate(est = as.numeric(difftime({{fecha_sal}}, {{fecha_ing}}, units = "days"))) %>%
+    summarise(
+      Minimo      = round(min(est, na.rm = TRUE), 1),
+      Mediana     = round(median(est, na.rm = TRUE), 1),
+      Maximo      = round(max(est, na.rm = TRUE), 1),
+      N_cero      = sum(est == 0, na.rm = TRUE),
+      N_negativas = sum(est < 0, na.rm = TRUE)
+    )
+}
+
+tabla_estancia <- bind_rows(
+  calc_estancia(df_hnfp,  FECHA_SALIDA, FECHA_INGRESO) %>% mutate(Base = "old", .before = 1),
+  calc_estancia(df_hnfp1, FECHA_EGRESO, FECHA_INGRESO) %>% mutate(Base = "new", .before = 1)
+)
+
+cortes_est    <- c(60, 90, 120, 180, 365, Inf)
+etiquetas_est <- c("61-90d", "91-120d", "121-180d", "181-365d", ">365d")
+
+tabla_estancia_old <- df_hnfp %>%
+  filter(!is.na(FECHA_SALIDA), !is.na(FECHA_INGRESO)) %>%
+  mutate(est = as.numeric(difftime(FECHA_SALIDA, FECHA_INGRESO, units = "days"))) %>%
+  filter(est > 60) %>%
+  mutate(Rango = cut(est, breaks = cortes_est, labels = etiquetas_est, include.lowest = TRUE)) %>%
+  count(Rango, COMPLEJIDAD) %>% arrange(Rango)
+
+tabla_estancia_new <- df_hnfp1 %>%
+  filter(!is.na(FECHA_EGRESO), !is.na(FECHA_INGRESO)) %>%
+  mutate(est = as.numeric(difftime(FECHA_EGRESO, FECHA_INGRESO, units = "days"))) %>%
+  filter(est > 60) %>%
+  mutate(Rango = cut(est, breaks = cortes_est, labels = etiquetas_est, include.lowest = TRUE)) %>%
+  count(Rango, COMPLEJIDAD) %>% arrange(Rango)
+
+# ── Tabla 8: Sexo ─────────────────────────────────────
+tabla_sexo <- full_join(
+  df_hnfp  %>% count(SEXO, name = "n_old") %>% mutate(pct_old = round(n_old/sum(n_old)*100,1)),
+  df_hnfp1 %>% count(SEXO, name = "n_new") %>% mutate(pct_new = round(n_new/sum(n_new)*100,1)),
+  by = "SEXO"
+) %>% mutate(n_old = replace_na(n_old,0), n_new = replace_na(n_new,0),
+             Diferencia = n_new - n_old)
+
+# ── Tabla 9: Cruce de eventos ─────────────────────────
+personas_comunes <- inner_join(
+  df_hnfp1 %>% distinct(TIPO_DOCUMENTO, DOCUMENTO),
+  df_hnfp  %>% distinct(TIPO_DOCUMENTO, DOCUMENTO),
+  by = c("TIPO_DOCUMENTO", "DOCUMENTO")
+)
+
+eventos_comunes <- inner_join(df_hnfp1, df_hnfp,
+  by = c("TIPO_DOCUMENTO", "DOCUMENTO", "FECHA_INGRESO"))
+
+eventos_solo_new <- anti_join(df_hnfp1, df_hnfp,
+  by = c("TIPO_DOCUMENTO", "DOCUMENTO", "FECHA_INGRESO"))
+
+eventos_solo_old <- anti_join(df_hnfp, df_hnfp1,
+  by = c("TIPO_DOCUMENTO", "DOCUMENTO", "FECHA_INGRESO"))
+
+tabla_cruce <- tibble(
+  Indicador = c("Personas comunes", "Eventos comunes (match exacto)",
+                "Eventos solo en new", "Eventos solo en old"),
+  Valor = c(nrow(personas_comunes), nrow(eventos_comunes),
+            nrow(eventos_solo_new), nrow(eventos_solo_old))
+)
+```
+
+## 1. Descripción general
+```{r, echo=FALSE}
+kable(tabla_general, caption = "Resumen general de las bases de datos")
+```
+
+## 8. Duplicados
+```{r, echo=FALSE}
+kable(
+  tabla_duplicados,
+  col.names = c("Base", "Total registros", "Combinaciones únicas",
+                "Combinaciones duplicadas", "Registros en duplicados",
+                "Máx. repeticiones"),
+  caption = "Resumen de duplicados por base de datos"
+)
+```
+
+> **Nota:** *Combinaciones duplicadas* es el número de eventos (TIPO_DOCUMENTO + DOCUMENTO + 
+> FECHA_INGRESO) que aparecen más de una vez. *Registros en duplicados* es el total de filas 
+> que forman parte de esas combinaciones repetidas.
+
+### Detalle — Base old (top 20)
+```{r, echo=FALSE}
+detalle_dup_old %>%
+  head(20) %>%
+  kable(
+    col.names = c("Tipo documento", "Documento", "Fecha ingreso", "Veces repetido"),
+    caption   = "Eventos más duplicados — base old"
+  )
+```
+
+### Detalle — Base new (top 20)
+## 8. Duplicados
+```{r, echo=FALSE}
+kable(
+  tabla_duplicados,
+  col.names = c("Base", "Total registros", "Combinaciones únicas",
+                "Combinaciones duplicadas", "Registros en duplicados",
+                "Máx. repeticiones"),
+  caption = "Resumen de duplicados por base de datos"
+)
+```
+
+> **Nota:** *Combinaciones duplicadas* es el número de eventos (TIPO_DOCUMENTO + DOCUMENTO + 
+> FECHA_INGRESO) que aparecen más de una vez. *Registros en duplicados* es el total de filas 
+> que forman parte de esas combinaciones repetidas.
+
+### Detalle — Base old (top 20)
+```{r, echo=FALSE}
+detalle_dup_old %>%
+  head(20) %>%
+  kable(
+    col.names = c("Tipo documento", "Documento", "Fecha ingreso", "Veces repetido"),
+    caption   = "Eventos más duplicados — base old"
+  )
+```
+
+### Detalle — Base new (top 20)
+```{r, echo=FALSE}
+detalle_dup_new %>%
+  head(20) %>%
+  kable(
+    col.names = c("Tipo documento", "Documento", "Fecha ingreso", "Veces repetido"),
+    caption   = "Eventos más duplicados — base new"
+  )
+```
+## 2. Complejidad
+```{r, echo=FALSE}
+kable(tabla_complejidad, caption = "Registros por nivel de complejidad")
+```
+
+## 3. Edad
+```{r, echo=FALSE}
+kable(tabla_edad, caption = "Estadísticas descriptivas de edad")
+```
+
+## Distribución de edad (0–59 meses)
+```{r, echo=FALSE}
+tabla_dist_edad %>%
+  kable(
+    col.names = c("Edad (meses)", "n old", "n new", "Diferencia"),
+    caption   = "Distribución de registros por edad en meses (0–59)"
+  )
+```
+
+
+
+
+## 4. Códigos CIE-10
+```{r, echo=FALSE}
+kable(tabla_cie_resumen, caption = "Resumen por estado del código CIE-10")
+kable(tabla_cie_problemas, caption = "Códigos con problemas")
+```
+
+## Diagnóstico CIE-10 — Códigos presentes en ambas bases
+```{r, echo=FALSE}
+tabla_cie %>%
+  filter(Estado == "Presente en ambas") %>%
+  select(DX, n_old, n_new, Diferencia) %>%
+  arrange(Diferencia) %>%
+  kable(
+    col.names = c("Código CIE-10", "n old", "n new", "Diferencia"),
+    caption   = "Códigos presentes en ambas bases — comparación de registros"
+  )
+
+```
+
+
+## 5. Fechas de egreso
+```{r, echo=FALSE}
+kable(tabla_fechas, caption = "Diagnóstico de fechas de egreso")
+kable(tabla_estancia, caption = "Estadísticas de estancia hospitalaria (días)")
+kable(tabla_estancia_old, caption = "Estancias > 60 días — Base old")
+kable(tabla_estancia_new, caption = "Estancias > 60 días — Base new")
+```
+
+## 6. Sexo
+```{r, echo=FALSE}
+kable(tabla_sexo, caption = "Distribución por sexo")
+```
+
+## 7. Cruce de eventos
+```{r, echo=FALSE}
+kable(tabla_cruce, caption = "Comparación de eventos entre bases")
+```
+```
+
+## 7. Cruce de eventos
+```{r, echo=FALSE}
+kable(tabla_cruce, caption = "Comparación de eventos entre bases")
+```
+
+> **Nota metodológica:** La suma de *eventos comunes* + *eventos solo en new* + *eventos solo en old* 
+> puede superar el total de registros de cada base. Esto se debe a que el `inner_join` usado para 
+> identificar eventos comunes detectó relaciones **muchos a muchos**, es decir, un mismo par 
+> (TIPO_DOCUMENTO + DOCUMENTO + FECHA_INGRESO) aparece más de una vez en alguna de las dos bases, 
+> posiblemente por registros duplicados o por un paciente con múltiples diagnósticos en la misma 
+> fecha de ingreso.
+
