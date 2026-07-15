@@ -1,9 +1,7 @@
-# =============================================================================
 # Proyecto: Estudio de carga de VSR en Colombia
 # Script:   01 - Depuración y consolidación de datos KoboToolbox
 # Autora:   Rosmery Vanessa Barroso Parra
 # Fecha:    Junio 2026
-# =============================================================================
 
 
 # Librerías -------------------------------------------------------------------
@@ -141,27 +139,27 @@ eventos_limpio <- datos_eventos %>%
 
 # Depuración: checks de calidad -----------------------------------------------
 
-# --- check 1: pacientes duplicados por centro ---------------------------------
+# check 1: pacientes duplicados por centro ---------------------------------
 duplicados <- main_limpio %>%
   group_by(nombre_institucion, cod_participante) %>%
   filter(n() > 1) %>%
   arrange(nombre_institucion, cod_participante, fecha_registro) %>%
   mutate(flag = "Paciente duplicado en el mismo centro")
 
-# --- check 2: fecha fin de evento anterior a fecha inicio --------------------
+# check 2: fecha fin de evento anterior a fecha inicio --------------------
 errores_fechas_evento <- eventos_limpio %>%
   filter(!is.na(fecha_fin_evento) & !is.na(fecha_inicio_evento)) %>%
   filter(fecha_fin_evento < fecha_inicio_evento) %>%
   mutate(flag = "Fecha fin anterior a fecha inicio del evento")
 
-# --- check 3: días calculados no coinciden con los reportados por Kobo -------
+# check 3: días calculados no coinciden con los reportados por Kobo -------
 errores_dias_evento <- eventos_limpio %>%
   filter(!is.na(dias_evento) & !is.na(dias_evento_calc)) %>%
   mutate(diferencia_dias = dias_evento_calc - as.numeric(dias_evento)) %>%
   filter(abs(diferencia_dias) > 0) %>%
   mutate(flag = "Discrepancia entre días calculados y reportados")
 
-# --- check 4: urgencias declaradas sin fechas registradas --------------------
+# check 4: urgencias declaradas sin fechas registradas --------------------
 ids_con_urgencias <- datos_urgencias %>% pull(submission_id) %>% unique()
 
 errores_urgencias_sin_fechas <- eventos_limpio %>%
@@ -169,14 +167,14 @@ errores_urgencias_sin_fechas <- eventos_limpio %>%
   filter(!submission_id %in% ids_con_urgencias) %>%
   mutate(flag = "Declara urgencias pero no hay fechas registradas")
 
-# --- check 5: eventos sin ningún medicamento registrado ----------------------
+# check 5: eventos sin ningún medicamento registrado ----------------------
 ids_con_medicamentos <- datos_medicamentos %>% pull(parent_index) %>% unique()
 
 errores_sin_medicamentos <- eventos_limpio %>%
   filter(!index %in% ids_con_medicamentos) %>%
   mutate(flag = "Evento sin medicamento registrado")
 
-# --- check 6: campos 'otro' vacíos -------------------------------------------
+# check 6: campos 'otro' vacíos -------------------------------------------
 errores_otro_vacio <- main_limpio %>%
   select(id, nombre_institucion, cod_participante, cod_medico,
          matches("^otra|^otras|_otro$")) %>%
@@ -194,7 +192,7 @@ eventos_limpio <- eventos_limpio %>%
     edad_meses_evento = round(edad_dias_evento / 30.4375, 1)
   )
 
-# --- check 7: edad al ingreso fuera de rango (0-59 meses) -------------------
+# check 7: edad al ingreso fuera de rango (0-59 meses) -------------------
 errores_edad <- eventos_limpio %>%
   left_join(
     main_limpio %>%
@@ -210,7 +208,7 @@ errores_edad <- eventos_limpio %>%
     edad_meses_evento, flag
   )
 
-# --- check 8: control de imágenes/procedimientos/interconsultas --------------
+# check 8: control de imágenes/procedimientos/interconsultas --------------
 # Si marcó si en el control, debe tener al menos 1 registro en el repeat group
 
 ids_con_imagenes <- datos_imagenes %>% pull(parent_index) %>% unique()
@@ -292,8 +290,6 @@ seguimiento_medico_full <- main_limpio %>%
 
 
 # Errores fecha nacimiento --------------------------------------------------------
-# --- check 8: fecha de nacimiento posterior al inicio del evento -------------
-
 errores_fecha_nacimiento <- eventos_limpio %>%
   left_join(
     main_limpio %>%
@@ -353,7 +349,7 @@ episodios_nivel <- eventos_limpio %>%
     ))
   )
 
-# --- check 9: eventos elegibles sin ningún nivel de atención registrado ------
+# check 9: eventos elegibles sin ningún nivel de atención registrado ------
 # El médico se guía por submission_id (id de Kobo) directamente, no por
 # cod_participante, así que estos objetos no incluyen esa columna.
 
@@ -431,7 +427,6 @@ tabla_nivel_medico_final <- bind_rows(tabla_nivel_medico, total_nivel)
 
 
 # Tabla 3 - resumen de errores -------------------------------------------------
-# Va después de episodios_nivel/errores_sin_estancia porque depende de ellos
 
 resumen_errores <- tibble(
   tipo_error = c(
@@ -483,8 +478,8 @@ save(
   errores_imagenes,
   errores_procedimientos,
   errores_interconsultas,
-  errores_sin_estancia,      # <-- nuevo
-  pacientes_sin_estancia,    # <-- nuevo
+  errores_sin_estancia,   
+  pacientes_sin_estancia,    
   main_limpio,
   eventos_limpio,
   datos_urgencias,
